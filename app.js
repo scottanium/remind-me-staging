@@ -210,15 +210,92 @@
     armTimers();
   }
 
+  var DRAFT_STORAGE_KEYS = ["draft", "confirm-draft", "last-used", "lastUsed", "lastTime", "lastDate"];
+
+  function clearDraftStorage() {
+    var prefix = (store && store.KEY_PREFIX) || "";
+    var extras = [prefix, "", "rm-staging:"];
+    try {
+      DRAFT_STORAGE_KEYS.forEach(function (k) {
+        extras.forEach(function (pre) {
+          localStorage.removeItem(pre + k);
+        });
+      });
+    } catch (e) {}
+  }
+
+  function replaceDateTimeInput(id) {
+    var el = $(id);
+    if (!el || !el.parentNode) return el;
+    var fresh = el.cloneNode(true);
+    fresh.setAttribute("autocomplete", "off");
+    fresh.setAttribute("autocorrect", "off");
+    fresh.value = "";
+    fresh.defaultValue = "";
+    fresh.removeAttribute("value");
+    el.parentNode.replaceChild(fresh, el);
+    return fresh;
+  }
+
+  function setFieldValue(id, value) {
+    var el = $(id);
+    if (!el) return null;
+    var v = value == null ? "" : String(value);
+    if (el.type === "time" && v.length > 5) v = v.slice(0, 5);
+    if (el.type === "date" || el.type === "time") {
+      el = replaceDateTimeInput(id);
+    }
+    el.defaultValue = v;
+    el.value = "";
+    if (v) {
+      el.value = v;
+      try { el.setAttribute("value", v); } catch (e) {}
+    } else {
+      try { el.removeAttribute("value"); } catch (e) {}
+    }
+    return el;
+  }
+
+  function applyDateTimeValues(date, time) {
+    if (time && time.length > 5) time = time.slice(0, 5);
+    setFieldValue("fieldDate", date || "");
+    setFieldValue("fieldTime", time || "");
+    function verify() {
+      var d = $("fieldDate");
+      var t = $("fieldTime");
+      if (d && date && d.value !== date) {
+        d.value = date;
+        d.defaultValue = date;
+      }
+      if (t && time) {
+        var cur = (t.value || "").slice(0, 5);
+        if (cur !== time) {
+          t.value = time;
+          t.defaultValue = time;
+        }
+      }
+    }
+    verify();
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(verify);
+    setTimeout(verify, 0);
+    setTimeout(verify, 50);
+  }
+
   function resetConfirmFields() {
     var form = $("confirmForm");
-    if (form && form.reset) form.reset();
-    $("fieldTitle").value = "";
-    // Blank first so iOS Safari doesn’t keep showing the previous date/time.
-    $("fieldDate").value = "";
-    $("fieldTime").value = "";
-    $("fieldLead").value = "0";
-    $("fieldRecur").value = "none";
+    if (form) {
+      form.setAttribute("autocomplete", "off");
+      try { if (form.reset) form.reset(); } catch (e) {}
+    }
+    // Replace native date/time inputs so iOS Safari cannot keep the previous widget value.
+    replaceDateTimeInput("fieldDate");
+    replaceDateTimeInput("fieldTime");
+    setFieldValue("fieldTitle", "");
+    setFieldValue("fieldDate", "");
+    setFieldValue("fieldTime", "");
+    if ($("fieldLead")) $("fieldLead").value = "0";
+    if ($("fieldRecur")) $("fieldRecur").value = "none";
+    clearDraftStorage();
   }
 
   function resetDraftState() {
@@ -244,11 +321,8 @@
     resetConfirmFields();
     editingId = id || null;
     $("confirmHeading").textContent = id ? "Edit reminder" : "Check this reminder";
-    $("fieldTitle").value = draft.title || "";
-    $("fieldDate").value = "";
-    $("fieldTime").value = "";
-    $("fieldDate").value = draft.date || "";
-    $("fieldTime").value = draft.time || "";
+    setFieldValue("fieldTitle", draft.title || "");
+    applyDateTimeValues(draft.date || "", draft.time || "");
     ensureLeadOption(draft.leadMinutes || 0);
     $("fieldLead").value = String(draft.leadMinutes || 0);
     $("fieldRecur").value = recurToValue(draft.recur);
@@ -859,6 +933,18 @@
 
   function init() {
     fillRecurSelect();
+    resetConfirmFields();
+    window.addEventListener("pageshow", function (e) {
+      var overlay = $("confirmOverlay");
+      var hidden = !overlay || overlay.classList.contains("hidden");
+      if (e.persisted || hidden) {
+        if (hidden) resetConfirmFields();
+        else {
+          // Reopening the app mid-sheet: close and clear so stale native values cannot linger.
+          closeConfirm();
+        }
+      }
+    });
     renderSchedule();
     setupSpeech();
     updateNotifyButton();

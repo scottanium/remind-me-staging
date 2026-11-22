@@ -15,6 +15,7 @@ Staging shows a yellow **STAGING** bar at the top. It uses its own saved reminde
 - **Look and layout:** `styles.css`.
 - **On-screen wording, help text, and buttons:** `index.html` (and some messages in `app.js`).
 - **How spoken or typed phrases are understood:** `parser.js`. Change this only when the meaning of a phrase should change, then rerun the parser tests.
+- **Default time:** if you don’t say a time, the card uses **9:00 AM** (a fresh default, never the previous reminder’s time). “Tonight” or “this evening” use 7:00 PM.
 - **Icons:** `icon-192.png` and `icon-512.png`.
 - **App name on the Home Screen:** `manifest.json`. Keep `start_url` and `scope` as relative paths (`./index.html` and `./`) so the app works under both `/remind-me/` and `/remind-me-staging/`.
 

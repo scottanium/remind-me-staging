@@ -4,21 +4,27 @@ Automated tests live in the `voice-reminder` workspace (`tests/parser.test.js`, 
 
 ## Automated (run after every change)
 
-Serve the staging files and run all three:
+Serve the staging files and run:
 
 ```
 # from the voice-reminder workspace
 node tests/parser.test.js
-# 33 tests, expect: 33 passed, 0 failed
+# original 33 plus ordinal/time cases, expect: all passed
 
-# serve staging-upload on port 8765, then:
-REMIND_ME_URL=http://127.0.0.1:8765/ node tests/cancel-reset.test.js
+# serve staging-upload (or a /remind-me-staging/ path), then:
+REMIND_ME_URL=http://127.0.0.1:8770/remind-me-staging/ node tests/cancel-reset.test.js
 # 4 tests, expect: 4 passed, 0 failed
 
-REMIND_ME_URL=http://127.0.0.1:8765/ node tests/staging-load.test.js
+REMIND_ME_URL=http://127.0.0.1:8770/remind-me-staging/ node tests/field-reset.test.js
+# must-pass: date and time DOM fields reset after Save, Cancel, and reload
+# (5 back-to-back reminders, iPhone-sized headless)
+
+REMIND_ME_URL=http://127.0.0.1:8770/remind-me-staging/ node tests/staging-load.test.js
 # headless load: STAGING banner visible, storage key prefixed, cache name
 # is remind-me-staging-v3, no console errors, screenshot saved
 ```
+
+If you don’t say a time, the review card must show **9:00 AM**, never the previous reminder’s time.
 
 Parser checks that phrases become the right title, date, time, lead time, and repeat setting, and that one phrase does not leak into the next. Cancel-reset checks that tapping Cancel clears the draft so the next reminder is fresh (typed and keyboard-mic paths).
 

@@ -264,6 +264,7 @@
   function parseTime(s) {
     var time = null;
     var tonight = false;
+    var merHint = null;
     var m;
 
     if (/\b(?:at\s+)?midnight\b/.test(s)) {
@@ -276,9 +277,46 @@
       s = s.replace(/\b(?:at\s+)?noon\b/, " ").replace(/\s+/g, " ").trim();
       return { s: s, time: time };
     }
-    if (/\btonight\b/.test(s)) {
+
+    // tonight / this evening → 7:00 PM if no other time is given
+    if (/\btonight\b/.test(s) || /\bin the evening\b/.test(s) || /\b(?:this\s+)?evening\b/.test(s)) {
       tonight = true;
-      s = s.replace(/\btonight\b/, " ").replace(/\s+/g, " ").trim();
+      merHint = "pm";
+      s = s.replace(/\btonight\b|\bin the evening\b|\b(?:this\s+)?evening\b/g, " ").replace(/\s+/g, " ").trim();
+    }
+    // this morning / morning → 9:00 AM if no other time is given; also marks bare hours as AM
+    var morning = false;
+    if (/\bin the morning\b/.test(s) || /\b(?:this\s+)?morning\b/.test(s)) {
+      morning = true;
+      merHint = "am";
+      s = s.replace(/\bin the morning\b|\b(?:this\s+)?morning\b/g, " ").replace(/\s+/g, " ").trim();
+    }
+
+    function takeMer(explicit) {
+      return explicit || merHint || null;
+    }
+
+    // quarter past 4, quarter to 4, half past 4
+    m = s.match(/\b(?:a\s+)?quarter\s+past\s+(\d{1,2})(?:\s*(a\.?m\.?|p\.?m\.?))?\b/);
+    if (m) {
+      time = resolveHourMinute(m[1], 15, takeMer(m[2]));
+      s = cut(s, m.index, m.index + m[0].length);
+      return { s: s, time: time, tonight: tonight };
+    }
+    m = s.match(/\b(?:a\s+)?quarter\s+(?:to|of)\s+(\d{1,2})(?:\s*(a\.?m\.?|p\.?m\.?))?\b/);
+    if (m) {
+      var hmTo = resolveHourMinute(m[1], 0, takeMer(m[2]));
+      var minsTo = hmTo.hour * 60 + hmTo.minute - 15;
+      if (minsTo < 0) minsTo += 24 * 60;
+      time = { hour: Math.floor(minsTo / 60) % 24, minute: minsTo % 60 };
+      s = cut(s, m.index, m.index + m[0].length);
+      return { s: s, time: time, tonight: tonight };
+    }
+    m = s.match(/\bhalf\s+past\s+(\d{1,2})(?:\s*(a\.?m\.?|p\.?m\.?))?\b/);
+    if (m) {
+      time = resolveHourMinute(m[1], 30, takeMer(m[2]));
+      s = cut(s, m.index, m.index + m[0].length);
+      return { s: s, time: time, tonight: tonight };
     }
 
     // Prefer "at 2", then "2:30", then "2pm" so we never grab a stray number.
@@ -293,12 +331,14 @@
       var prevCh = s[m.index - 1];
       var nextCh = s[m.index + m[0].length];
       if (prevCh === "/" || nextCh === "/") continue;
-      if (ti === 0) time = resolveHourMinute(m[1], m[2], m[3]);
-      else if (ti === 1) time = resolveHourMinute(m[1], m[2], m[3]);
-      else time = resolveHourMinute(m[1], 0, m[2]);
+      if (ti === 0) time = resolveHourMinute(m[1], m[2], takeMer(m[3]));
+      else if (ti === 1) time = resolveHourMinute(m[1], m[2], takeMer(m[3]));
+      else time = resolveHourMinute(m[1], 0, takeMer(m[2]));
       s = cut(s, m.index, m.index + m[0].length);
       break;
     }
+
+    if (!time && morning) time = { hour: 9, minute: 0 };
 
     return { s: s, time: time, tonight: tonight };
   }
@@ -333,6 +373,38 @@
       date = yearMonthDay(parts, parseInt(m[1], 10) - 1, parseInt(m[2], 10), m[3] ? parseInt(m[3], 10) : null);
       s = s.replace(m[0], " ").replace(/\s+/g, " ").trim();
       return { s: s, date: date };
+    }
+
+    // Bare ordinal day: "on the 27th", "the 27th", "27th".
+    // If that day has already passed this month (or is today and the time has passed), use next month.
+    var ordinalGuessH = h != null ? h : 9;
+    m = s.match(/\b(?:on\s+)?(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\b/);
+    if (m) {
+      var ordDay = parseInt(m[1], 10);
+      if (ordDay >= 1 && ordDay <= 31) {
+        date = nextMonthOnDay(parts, ordDay, ordinalGuessH, min);
+        s = s.replace(m[0], " ").replace(/\s+/g, " ").trim();
+        return { s: s, date: date };
+      }
+    }
+
+    // Word ordinals: "on the twenty-seventh", "the fifth"
+    var wordOrdRe = new RegExp(
+      "\\b(?:on\\s+)?the\\s+(" +
+      "twenty[\\-\\s](?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth)|" +
+      "thirty[\\-\\s]first|thirtieth|twentieth|" +
+      "nineteenth|eighteenth|seventeenth|sixteenth|fifteenth|fourteenth|thirteenth|" +
+      "twelfth|eleventh|tenth|ninth|eighth|seventh|sixth|fifth|fourth|third|second|first" +
+      ")\\b"
+    );
+    m = s.match(wordOrdRe);
+    if (m) {
+      var wordDay = wordOrdinalToDay(m[1]);
+      if (wordDay) {
+        date = nextMonthOnDay(parts, wordDay, ordinalGuessH, min);
+        s = s.replace(m[0], " ").replace(/\s+/g, " ").trim();
+        return { s: s, date: date };
+      }
     }
 
     var nextWd = new RegExp("\\bnext\\s+(" + WEEKDAY_RE + ")\\b");
@@ -397,6 +469,20 @@
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
 
+  function wordOrdinalToDay(word) {
+    var w = String(word || "").toLowerCase().replace(/\s+/g, "-");
+    var map = {
+      first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10,
+      eleventh: 11, twelfth: 12, thirteenth: 13, fourteenth: 14, fifteenth: 15, sixteenth: 16, seventeenth: 17,
+      eighteenth: 18, nineteenth: 19, twentieth: 20, "twenty-first": 21, "twenty-second": 22, "twenty-third": 23,
+      "twenty-fourth": 24, "twenty-fifth": 25, "twenty-sixth": 26, "twenty-seventh": 27, "twenty-eighth": 28,
+      "twenty-ninth": 29, thirtieth: 30, "thirty-first": 31
+    };
+    return map[w] || null;
+  }
+
+  /* Fresh default when no time is spoken: 9:00 AM. Tonight/this evening: 7:00 PM.
+     Never reuse a previous reminder's time. */
   function defaultTimeFor(tonight, recur) {
     if (tonight) return { hour: 19, minute: 0 };
     return { hour: 9, minute: 0 };
