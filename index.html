@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0c0e12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Remind Me">
+  <title>Remind Me</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="icon-192.png" sizes="192x192">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <script src="config.js"></script>
+</head>
+<body>
+  <div id="stagingBanner" class="staging-banner hidden" role="status">STAGING</div>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <img src="icon-192.png" alt="" width="40" height="40" class="brand-icon">
+        <div>
+          <h1>Remind Me</h1>
+          <p class="sub">Speak or type a reminder</p>
+        </div>
+      </div>
+      <button type="button" id="helpBtn" class="icon-btn" aria-label="Help">?</button>
+    </header>
+
+    <main>
+      <section class="composer" aria-label="Create a reminder">
+        <div id="speechBanner" class="banner hidden" role="status"></div>
+        <p id="status" class="status hidden" role="status"></p>
+
+        <button type="button" id="micBtn" class="mic-btn" aria-label="Tap to speak a reminder">
+          <svg viewBox="0 0 24 24" width="44" height="44" aria-hidden="true">
+            <path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/>
+          </svg>
+        </button>
+        <p id="micHint" class="mic-hint">Tap to speak</p>
+        <p id="transcript" class="transcript hidden"></p>
+
+        <button type="button" id="keyboardMicBtn" class="ghost-btn keyboard-mic-btn hidden">Use iPhone keyboard mic</button>
+        <div id="keyboardCoach" class="coach hidden" role="status">
+          <p class="coach-title">Use your iPhone’s keyboard mic</p>
+          <ol>
+            <li>The text box is ready. If the keyboard isn’t open, tap the box.</li>
+            <li>On the iPhone keyboard, tap the microphone key (usually next to the space bar or at the bottom right).</li>
+            <li>Speak your reminder, then tap the mic key again or Done. I’ll turn it into a reminder for you to check.</li>
+          </ol>
+          <p class="coach-note">This uses Apple’s own dictation, so it works even when the yellow mic button doesn’t — including in the Home Screen app.</p>
+        </div>
+        <button type="button" id="copySafariBtn" class="ghost-btn hidden">Copy Safari link</button>
+
+        <form id="typeForm" class="type-form">
+          <label for="typeInput" class="sr-only">Type a reminder</label>
+          <textarea id="typeInput" name="text" rows="2" placeholder="Or type: dentist Tuesday at 2, remind me an hour before" autocomplete="off" enterkeyhint="done"></textarea>
+          <button type="submit" class="primary-btn" id="addBtn">Add reminder</button>
+        </form>
+      </section>
+
+      <section class="notify-block">
+        <button type="button" id="notifyBtn" class="ghost-btn">Enable notifications</button>
+        <p id="notifyNote" class="fine-print">Banners work while the app is open. If you close it, use Add to calendar so your phone still reminds you.</p>
+      </section>
+
+      <section id="schedule" class="schedule" aria-live="polite"></section>
+
+      <section class="tools">
+        <button type="button" id="exportIcsBtn" class="ghost-btn">Export all to calendar</button>
+        <button type="button" id="exportJsonBtn" class="ghost-btn">Export backup</button>
+        <button type="button" id="importJsonBtn" class="ghost-btn">Import backup</button>
+        <input type="file" id="importFile" accept="application/json,.json" hidden>
+      </section>
+    </main>
+  </div>
+
+  <div id="confirmOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirmHeading">
+    <div class="sheet">
+      <h2 id="confirmHeading">Check this reminder</h2>
+      <form id="confirmForm">
+        <label>
+          <span>Title</span>
+          <input type="text" id="fieldTitle" required maxlength="120" autocomplete="off">
+        </label>
+        <div class="row-2">
+          <label>
+            <span>Date</span>
+            <input type="date" id="fieldDate" required>
+          </label>
+          <label>
+            <span>Time</span>
+            <input type="time" id="fieldTime" required>
+          </label>
+        </div>
+        <label>
+          <span>Repeat</span>
+          <select id="fieldRecur"></select>
+        </label>
+        <label>
+          <span>Remind me</span>
+          <select id="fieldLead">
+            <option value="0">At the time of the event</option>
+            <option value="5">5 minutes before</option>
+            <option value="15">15 minutes before</option>
+            <option value="30">30 minutes before</option>
+            <option value="60">1 hour before</option>
+            <option value="120">2 hours before</option>
+            <option value="1440">1 day before</option>
+          </select>
+        </label>
+        <div class="sheet-actions">
+          <button type="button" id="cancelBtn" class="ghost-btn">Cancel</button>
+          <button type="submit" class="primary-btn" id="saveBtn">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="helpOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="helpHeading">
+    <div class="sheet help-sheet">
+      <div class="sheet-head">
+        <h2 id="helpHeading">How to use Remind Me</h2>
+        <button type="button" id="helpCloseX" class="icon-btn" aria-label="Close help">×</button>
+      </div>
+      <div class="help-body">
+        <h3>Create a reminder</h3>
+        <p>Tap the yellow microphone and say something like “dentist Tuesday at 2, remind me an hour before.” Or type that same kind of sentence and tap Add reminder.</p>
+        <p>You’ll get a card so you can check the title, day, time, whether it repeats, and how early to remind you, then Save or Cancel.</p>
+
+        <h3 id="help-iphone">Speaking on iPhone</h3>
+        <p>The yellow mic button works best in <strong>Safari</strong> (the compass icon). It often does <strong>not</strong> work if you opened this from the Home Screen, or in Chrome on iPhone. That’s an iPhone limit, not something you did wrong.</p>
+        <p>The reliable option on iPhone is <strong>Use iPhone keyboard mic</strong>. That uses Apple’s own dictation on the keyboard, and it works in Safari and in the Home Screen app.</p>
+        <p>To use it: tap Use iPhone keyboard mic, then tap the microphone key on the iPhone keyboard (usually next to the space bar). Speak, then tap the mic again or Done.</p>
+        <p><strong>Turn on dictation first:</strong> Settings → General → Keyboard → Enable Dictation. If a prompt appears, tap Enable Dictation.</p>
+        <p><strong>Allow the mic for the yellow button in Safari:</strong> when Safari asks, tap Allow. To change it later, open this page in Safari, tap the Page Menu (left of the address bar) → Website Settings → Microphone → Allow. On recent iPhone software you can also check Settings → Apps → Safari → Microphone. On older software, look under Settings → Safari.</p>
+        <p>If you see Speech Recognition under Settings → Privacy &amp; Security, allow it for Safari too. Siri being on can also help the yellow mic start.</p>
+        <p>If the yellow mic still won’t listen in the Home Screen app, open this same page in Safari instead, or just use the keyboard mic.</p>
+
+        <h3>Will my phone ring?</h3>
+        <p>Tap Enable notifications if you want a banner while this app is open. If you close the app or lock your phone, the reminder may not go off. That’s a limit of web apps on phones.</p>
+        <p>For a reminder you can count on, tap Add to calendar on an item (or Export all to calendar) and let your phone’s calendar app notify you.</p>
+
+        <h3>Add this to your Home Screen</h3>
+        <p><strong>iPhone:</strong> Open this page in Safari (not Chrome). Tap the Share button (the square with an arrow). Tap Add to Home Screen.</p>
+        <p><strong>Android:</strong> Open this page in Chrome. Tap the menu (three dots). Tap Add to Home Screen or Install app.</p>
+
+        <h3>Your data</h3>
+        <p>Reminders stay on this phone or computer. Nothing is sent to an account. Use Export backup if you want a copy, and Import backup to load one back.</p>
+        <p>Times are in Indianapolis time (Eastern).</p>
+      </div>
+      <div class="sheet-actions">
+        <button type="button" id="helpClose" class="primary-btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="askOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="askHeading">
+    <div class="sheet ask-sheet">
+      <h2 id="askHeading">Are you sure?</h2>
+      <p id="askMessage" class="ask-message"></p>
+      <div class="sheet-actions">
+        <button type="button" id="askCancel" class="ghost-btn">Cancel</button>
+        <button type="button" id="askConfirm" class="danger-btn">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+
+  <script src="parser.js"></script>
+  <script src="storage.js"></script>
+  <script src="ics.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
