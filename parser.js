@@ -153,6 +153,7 @@
     return String(text)
       .toLowerCase()
       .replace(/[’']/g, "'")
+      .replace(/\b([ap])\.?m\.?/g, "$1m")
       .replace(/[,!?]+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
@@ -261,6 +262,91 @@
     return { s: s, date: fmtDate(p), time: fmtTime(p.hour, p.minute), relative: true };
   }
 
+  var WORD_HOUR_RE = "one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve";
+  var WORD_HOUR_MAP = {
+    one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+    ten: 10, eleven: 11, twelve: 12
+  };
+
+  function wordHourValue(name) {
+    return WORD_HOUR_MAP[String(name || "").toLowerCase()] || null;
+  }
+
+  function wordMinuteValue(phrase) {
+    var w = String(phrase || "").toLowerCase().replace(/['’]/g, "'").replace(/\s+/g, " ").trim();
+    w = w.replace(/-/g, " ");
+    if (/^o\s*'?\s*clock$/.test(w) || w === "oclock") return 0;
+    var units = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+    var teens = {
+      ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15,
+      sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19
+    };
+    var tens = { twenty: 20, thirty: 30, forty: 40, fifty: 50 };
+    if (teens[w] != null) return teens[w];
+    var oh = w.match(/^o(?:h)?\s+(one|two|three|four|five|six|seven|eight|nine)$/);
+    if (oh) return units.indexOf(oh[1]);
+    var parts = w.split(" ");
+    if (parts.length === 1) {
+      if (tens[parts[0]] != null) return tens[parts[0]];
+      if (units.indexOf(parts[0]) > 0) return units.indexOf(parts[0]);
+      return null;
+    }
+    if (parts.length === 2 && tens[parts[0]] != null && units.indexOf(parts[1]) > 0) {
+      return tens[parts[0]] + units.indexOf(parts[1]);
+    }
+    return null;
+  }
+
+  var WORD_MINUTE_RE = (
+    "o\\s*'?\\s*clock|oclock|oh\\s+(?:one|two|three|four|five|six|seven|eight|nine)|" +
+    "twenty(?:[\\-\\s](?:one|two|three|four|five|six|seven|eight|nine))?|" +
+    "thirty(?:[\\-\\s](?:one|two|three|four|five|six|seven|eight|nine))?|" +
+    "forty(?:[\\-\\s](?:one|two|three|four|five|six|seven|eight|nine))?|" +
+    "fifty(?:[\\-\\s](?:one|two|three|four|five|six|seven|eight|nine))?|" +
+    "thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|" +
+    "ten|eleven|twelve|one|two|three|four|five|six|seven|eight|nine"
+  );
+
+  /* Colonless 3-4 digit times from iOS dictation, e.g. "1225" → 12:25.
+   * 4-digit numbers from 1900-2099 are years, not times (see extractAdjacentYear).
+   * Hour 13-23 is military time. Hour 1-12 uses the same am/pm rules as "h:mm":
+   * bare 12 is noon, 1-7 default to PM, 8-11 stay AM. If that clock time has
+   * already passed today, the date rolls to tomorrow — not to the AM tonight.
+   * Example: "1225 doctors appointment" said at 2:44 PM on Nov 22 →
+   * title "Doctors appointment", date Nov 23, time 12:25 (afternoon, tomorrow).
+   */
+  function parseColonlessDigits(raw) {
+    var n = String(raw || "");
+    if (!/^\d{3,4}$/.test(n)) return null;
+    var hour, minute;
+    if (n.length === 4) {
+      var asNum = parseInt(n, 10);
+      if (asNum >= 1900 && asNum <= 2099) return null;
+      hour = parseInt(n.slice(0, 2), 10);
+      minute = parseInt(n.slice(2, 4), 10);
+      if (hour > 23 || minute > 59) return null;
+      return { hour: hour, minute: minute, military: hour >= 13 || hour === 0 };
+    }
+    hour = parseInt(n.slice(0, 1), 10);
+    minute = parseInt(n.slice(1, 3), 10);
+    if (hour < 1 || hour > 9 || minute > 59) return null;
+    return { hour: hour, minute: minute, military: false };
+  }
+
+  function extractAdjacentYear(s, start, end) {
+    var after = s.slice(end).match(/^\s*,?\s*(19\d{2}|20\d{2})\b/);
+    if (after) return { year: parseInt(after[1], 10), start: start, end: end + after[0].length };
+    var before = s.slice(0, start).match(/\b(19\d{2}|20\d{2})\s*,?\s*$/);
+    if (before) return { year: parseInt(before[1], 10), start: start - before[0].length, end: end };
+    return null;
+  }
+
+  function applyExplicitYear(baseDate, year, parts) {
+    if (!year || !baseDate) return baseDate;
+    if (year === parts.year) return baseDate;
+    return { year: year, month: baseDate.month, day: Math.min(baseDate.day, daysInMonth(year, baseDate.month)) };
+  }
+
   function parseTime(s) {
     var time = null;
     var tonight = false;
@@ -296,34 +382,95 @@
       return explicit || merHint || null;
     }
 
-    // quarter past 4, quarter to 4, half past 4
-    m = s.match(/\b(?:a\s+)?quarter\s+past\s+(\d{1,2})(?:\s*(a\.?m\.?|p\.?m\.?))?\b/);
+    function merToken(tok) {
+      return /^am$|^pm$/.test(tok || "") ? takeMer(tok) : takeMer(null);
+    }
+
+    function hourFromToken(tok) {
+      if (/^\d{1,2}$/.test(tok)) return parseInt(tok, 10);
+      return wordHourValue(tok);
+    }
+
+    var merOrClock = "(am|pm|o\\s*'?\\s*clock|oclock)";
+    var hourToken = "(\\d{1,2}|" + WORD_HOUR_RE + ")";
+
+    // quarter past 4 / twelve, quarter to 4, half past 12
+    m = s.match(new RegExp("\\b(?:a\\s+)?quarter\\s+past\\s+" + hourToken + "(?:\\s*(am|pm))?\\b"));
     if (m) {
-      time = resolveHourMinute(m[1], 15, takeMer(m[2]));
+      time = resolveHourMinute(hourFromToken(m[1]), 15, takeMer(m[2]));
       s = cut(s, m.index, m.index + m[0].length);
       return { s: s, time: time, tonight: tonight };
     }
-    m = s.match(/\b(?:a\s+)?quarter\s+(?:to|of)\s+(\d{1,2})(?:\s*(a\.?m\.?|p\.?m\.?))?\b/);
+    m = s.match(new RegExp("\\b(?:a\\s+)?quarter\\s+(?:to|of)\\s+" + hourToken + "(?:\\s*(am|pm))?\\b"));
     if (m) {
-      var hmTo = resolveHourMinute(m[1], 0, takeMer(m[2]));
+      var hmTo = resolveHourMinute(hourFromToken(m[1]), 0, takeMer(m[2]));
       var minsTo = hmTo.hour * 60 + hmTo.minute - 15;
       if (minsTo < 0) minsTo += 24 * 60;
       time = { hour: Math.floor(minsTo / 60) % 24, minute: minsTo % 60 };
       s = cut(s, m.index, m.index + m[0].length);
       return { s: s, time: time, tonight: tonight };
     }
-    m = s.match(/\bhalf\s+past\s+(\d{1,2})(?:\s*(a\.?m\.?|p\.?m\.?))?\b/);
+    m = s.match(new RegExp("\\bhalf\\s+past\\s+" + hourToken + "(?:\\s*(am|pm))?\\b"));
     if (m) {
-      time = resolveHourMinute(m[1], 30, takeMer(m[2]));
+      time = resolveHourMinute(hourFromToken(m[1]), 30, takeMer(m[2]));
+      s = cut(s, m.index, m.index + m[0].length);
+      return { s: s, time: time, tonight: tonight };
+    }
+
+    // Spoken "twelve twenty five", "twelve o'clock"
+    m = s.match(new RegExp("\\b(?:at\\s+)?(" + WORD_HOUR_RE + ")\\s+(" + WORD_MINUTE_RE + ")(?:\\s*(am|pm))?\\b"));
+    if (m) {
+      var spokenMin = wordMinuteValue(m[2]);
+      var spokenHour = wordHourValue(m[1]);
+      if (spokenHour != null && spokenMin != null) {
+        time = resolveHourMinute(spokenHour, spokenMin, takeMer(m[3]));
+        s = cut(s, m.index, m.index + m[0].length);
+        return { s: s, time: time, tonight: tonight };
+      }
+    }
+
+    // Colonless 3-4 digit times: 1225, 325, 0930, 1430, 2100. Optional at / am/pm / o'clock.
+    // Years 1900-2099 are not treated as times.
+    m = s.match(new RegExp("\\b(?:at\\s+)?(\\d{3,4})(?:\\s*" + merOrClock + ")?\\b"));
+    if (m) {
+      var digits = parseColonlessDigits(m[1]);
+      if (digits) {
+        if (digits.military) time = { hour: digits.hour, minute: digits.minute };
+        else time = resolveHourMinute(digits.hour, digits.minute, merToken(m[2]));
+        s = cut(s, m.index, m.index + m[0].length);
+        return { s: s, time: time, tonight: tonight };
+      }
+    }
+
+    // iOS dictation "12 25" or "12.25"
+    m = s.match(new RegExp("\\b(?:at\\s+)?(\\d{1,2})[\\s.](\\d{2})(?:\\s*" + merOrClock + ")?\\b"));
+    if (m) {
+      var afterSpaced = s.slice(m.index + m[0].length);
+      if (!/^\s*(?:minutes?|mins?|hours?|hrs?|days?)\b/.test(afterSpaced)) {
+        var sh = parseInt(m[1], 10);
+        var smn = parseInt(m[2], 10);
+        if (smn <= 59 && ((sh >= 1 && sh <= 12) || (sh >= 13 && sh <= 23) || sh === 0)) {
+          if (sh >= 13 || sh === 0) time = { hour: sh, minute: smn };
+          else time = resolveHourMinute(sh, smn, merToken(m[3]));
+          s = cut(s, m.index, m.index + m[0].length);
+          return { s: s, time: time, tonight: tonight };
+        }
+      }
+    }
+
+    // Spoken hour only: "at twelve", "three pm", "three o'clock"
+    m = s.match(new RegExp("\\b(?:(at)\\s+)?(" + WORD_HOUR_RE + ")(?:\\s*" + merOrClock + ")?\\b"));
+    if (m && (m[1] || m[3])) {
+      time = resolveHourMinute(wordHourValue(m[2]), 0, merToken(m[3]));
       s = cut(s, m.index, m.index + m[0].length);
       return { s: s, time: time, tonight: tonight };
     }
 
     // Prefer "at 2", then "2:30", then "2pm" so we never grab a stray number.
     var timePatterns = [
-      /\bat\s+(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?\b/,
-      /\b(\d{1,2}):(\d{2})\s*(a\.?m\.?|p\.?m\.?)?\b/,
-      /\b(\d{1,2})\s*(a\.?m\.?|p\.?m\.?)\b/
+      /\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|o\s*'?\s*clock|oclock)?\b/,
+      /\b(\d{1,2}):(\d{2})\s*(am|pm|o\s*'?\s*clock|oclock)?\b/,
+      /\b(\d{1,2})\s*(am|pm|o\s*'?\s*clock|oclock)\b/
     ];
     for (var ti = 0; ti < timePatterns.length; ti++) {
       m = s.match(timePatterns[ti]);
@@ -331,9 +478,9 @@
       var prevCh = s[m.index - 1];
       var nextCh = s[m.index + m[0].length];
       if (prevCh === "/" || nextCh === "/") continue;
-      if (ti === 0) time = resolveHourMinute(m[1], m[2], takeMer(m[3]));
-      else if (ti === 1) time = resolveHourMinute(m[1], m[2], takeMer(m[3]));
-      else time = resolveHourMinute(m[1], 0, takeMer(m[2]));
+      if (ti === 0) time = resolveHourMinute(m[1], m[2], merToken(m[3]));
+      else if (ti === 1) time = resolveHourMinute(m[1], m[2], merToken(m[3]));
+      else time = resolveHourMinute(m[1], 0, merToken(m[2]));
       s = cut(s, m.index, m.index + m[0].length);
       break;
     }
@@ -360,11 +507,30 @@
       return { s: s, date: date };
     }
 
+    var yearFirstMonthRe = new RegExp("\\b(19\\d{2}|20\\d{2})\\s+(" + MONTH_RE + ")\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b");
+    m = s.match(yearFirstMonthRe);
+    if (m) {
+      date = yearMonthDay(parts, monthIndex(m[2]), parseInt(m[3], 10), parseInt(m[1], 10));
+      s = cut(s, m.index, m.index + m[0].length);
+      return { s: s, date: date };
+    }
+
     var monthRe = new RegExp("\\b(" + MONTH_RE + ")\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:\\s*,?\\s*(\\d{4}))?\\b");
     m = s.match(monthRe);
     if (m) {
-      date = yearMonthDay(parts, monthIndex(m[1]), parseInt(m[2], 10), m[3] ? parseInt(m[3], 10) : null);
-      s = s.replace(m[0], " ").replace(/\s+/g, " ").trim();
+      var monthYear = m[3] ? parseInt(m[3], 10) : null;
+      var monthStart = m.index;
+      var monthEnd = m.index + m[0].length;
+      if (!monthYear) {
+        var monthAdj = extractAdjacentYear(s, monthStart, monthEnd);
+        if (monthAdj) {
+          monthYear = monthAdj.year;
+          monthStart = monthAdj.start;
+          monthEnd = monthAdj.end;
+        }
+      }
+      date = yearMonthDay(parts, monthIndex(m[1]), parseInt(m[2], 10), monthYear);
+      s = cut(s, monthStart, monthEnd);
       return { s: s, date: date };
     }
 
@@ -383,7 +549,13 @@
       var ordDay = parseInt(m[1], 10);
       if (ordDay >= 1 && ordDay <= 31) {
         date = nextMonthOnDay(parts, ordDay, ordinalGuessH, min);
-        s = s.replace(m[0], " ").replace(/\s+/g, " ").trim();
+        var ordAdj = extractAdjacentYear(s, m.index, m.index + m[0].length);
+        if (ordAdj) {
+          date = applyExplicitYear(date, ordAdj.year, parts);
+          s = cut(s, ordAdj.start, ordAdj.end);
+        } else {
+          s = s.replace(m[0], " ").replace(/\s+/g, " ").trim();
+        }
         return { s: s, date: date };
       }
     }
@@ -402,7 +574,13 @@
       var wordDay = wordOrdinalToDay(m[1]);
       if (wordDay) {
         date = nextMonthOnDay(parts, wordDay, ordinalGuessH, min);
-        s = s.replace(m[0], " ").replace(/\s+/g, " ").trim();
+        var wordAdj = extractAdjacentYear(s, m.index, m.index + m[0].length);
+        if (wordAdj) {
+          date = applyExplicitYear(date, wordAdj.year, parts);
+          s = cut(s, wordAdj.start, wordAdj.end);
+        } else {
+          s = s.replace(m[0], " ").replace(/\s+/g, " ").trim();
+        }
         return { s: s, date: date };
       }
     }

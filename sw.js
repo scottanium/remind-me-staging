@@ -1,5 +1,5 @@
 importScripts("./config.js");
-const CACHE = (self.RemindMeConfig && self.RemindMeConfig.STAGING) ? "remind-me-staging-v4" : "remind-me-v4";
+const CACHE = (self.RemindMeConfig && self.RemindMeConfig.STAGING) ? "remind-me-staging-v5" : "remind-me-v5";
 const ASSETS = [
   "./",
   "./index.html",

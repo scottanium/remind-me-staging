@@ -21,7 +21,7 @@ REMIND_ME_URL=http://127.0.0.1:8770/remind-me-staging/ node tests/field-reset.te
 
 REMIND_ME_URL=http://127.0.0.1:8770/remind-me-staging/ node tests/staging-load.test.js
 # headless load: STAGING banner visible, storage key prefixed, cache name
-# is remind-me-staging-v3, no console errors, screenshot saved
+# is remind-me-staging-v5, no console errors, screenshot saved
 ```
 
 If you don’t say a time, the review card must show **9:00 AM**, never the previous reminder’s time.
@@ -33,7 +33,7 @@ Parser checks that phrases become the right title, date, time, lead time, and re
 - A yellow **STAGING** bar is clearly visible at the top.
 - The browser console has no errors.
 - Saved reminders use the `rm-staging:` key prefix (live uses `voice-reminders` with no prefix).
-- The service worker cache name is `remind-me-staging-v3`.
+- The service worker cache name is `remind-me-staging-v5`.
 - The app loads under a `/remind-me-staging/` path (manifest `start_url` and `scope` are `./index.html` and `./`; script and service-worker paths are relative).
 
 ## Feel-testing on staging (Scott, on the phone)
