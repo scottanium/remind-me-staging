@@ -22,6 +22,11 @@ REMIND_ME_URL=http://127.0.0.1:8770/remind-me-staging/ node tests/field-reset.te
 REMIND_ME_URL=http://127.0.0.1:8770/remind-me-staging/ node tests/staging-load.test.js
 # headless load: STAGING banner visible, storage key prefixed, cache name
 # is remind-me-staging-v5, no console errors, screenshot saved
+
+# serve both live-candidate and staging-upload under one origin, then:
+node tests/cache-isolation.test.js
+# 1 test, expect: staging deletes only remind-me-staging-* old caches;
+# live deletes only remind-me-v* old caches; other apps' caches are left alone
 ```
 
 If you don’t say a time, the review card must show **9:00 AM**, never the previous reminder’s time.

@@ -1,5 +1,5 @@
 importScripts("./config.js");
-const CACHE = (self.RemindMeConfig && self.RemindMeConfig.STAGING) ? "remind-me-staging-v5" : "remind-me-v5";
+const CACHE = (self.RemindMeConfig && self.RemindMeConfig.CACHE_NAME) || "remind-me-v5";
 const ASSETS = [
   "./",
   "./index.html",
@@ -9,6 +9,8 @@ const ASSETS = [
   "./parser.js",
   "./storage.js",
   "./ics.js",
+  "./speech.js",
+  "./notifications.js",
   "./manifest.json",
   "./icon-192.png",
   "./icon-512.png"
@@ -24,10 +26,22 @@ self.addEventListener("install", function (event) {
   );
 });
 
+function isOwnCacheFamily(name) {
+  // Live and staging share the github.io origin, so Cache Storage is shared.
+  // Only delete this copy's own family: "remind-me-staging-*" or live "remind-me-v*"
+  // (never "remind-me-staging-*"). Leave every other app's caches alone.
+  var staging = self.RemindMeConfig && self.RemindMeConfig.STAGING;
+  var slug = (self.RemindMeConfig && self.RemindMeConfig.APP_SLUG) || "remind-me";
+  if (staging) return name.indexOf(slug + "-staging-") === 0;
+  return name.indexOf(slug + "-") === 0 && name.indexOf(slug + "-staging-") !== 0;
+}
+
 self.addEventListener("activate", function (event) {
   event.waitUntil(
     caches.keys().then(function (keys) {
-      return Promise.all(keys.filter(function (k) { return k !== CACHE; }).map(function (k) {
+      return Promise.all(keys.filter(function (k) {
+        return k !== CACHE && isOwnCacheFamily(k);
+      }).map(function (k) {
         return caches.delete(k);
       }));
     }).then(function () {
